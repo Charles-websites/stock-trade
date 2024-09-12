@@ -1,0 +1,316 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Price Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-3xl font-bold mb-6 text-center">Stock Price Simulator</h1>
+        
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <label for="initialPrice" class="block mb-2">Initial Price:</label>
+                <input type="number" id="initialPrice" class="w-full p-2 border rounded" value="100">
+            </div>
+            <div>
+                <label for="days" class="block mb-2">Number of Days:</label>
+                <input type="number" id="days" class="w-full p-2 border rounded" value="100">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <label for="volatility" class="block mb-2">Volatility:</label>
+                <input type="number" id="volatility" class="w-full p-2 border rounded" value="0.02" step="0.01">
+            </div>
+            <div>
+                <label for="model" class="block mb-2">Price Model:</label>
+                <select id="model" class="w-full p-2 border rounded">
+                    <option value="normal">Normal Random Walk</option>
+                    <option value="brownian">Geometric Brownian Motion</option>
+                    <option value="jump">Jump Diffusion</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <label for="initialFunds" class="block mb-2">Initial Funds:</label>
+                <input type="number" id="initialFunds" class="w-full p-2 border rounded" value="10000">
+            </div>
+            <div>
+                <label for="action" class="block mb-2">Action:</label>
+                <div class="flex space-x-2">
+                    <select id="buyPercentage" class="w-1/2 p-2 border rounded">
+                        <option value="0">Buy</option>
+                        <option value="0.1">10%</option>
+                        <option value="0.2">20%</option>
+                        <option value="0.5">50%</option>
+                        <option value="1">100%</option>
+                    </select>
+                    <select id="sellPercentage" class="w-1/2 p-2 border rounded">
+                        <option value="0">Sell</option>
+                        <option value="0.1">10%</option>
+                        <option value="0.2">20%</option>
+                        <option value="0.5">50%</option>
+                        <option value="1">100%</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <button id="simulate" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 mb-4">Simulate</button>
+        <button id="nextDay" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 mb-4" style="display: none;">Next Day</button>
+
+        <div class="mb-4">
+            <canvas id="priceChart"></canvas>
+        </div>
+
+        <div class="mb-4">
+            <h2 class="text-xl font-bold mb-2">Transaction History</h2>
+            <table id="transactionTable" class="w-full border-collapse border">
+                <thead>
+                    <tr>
+                        <th class="border p-2">Day</th>
+                        <th class="border p-2">Action</th>
+                        <th class="border p-2">Shares</th>
+                        <th class="border p-2">Price</th>
+                        <th class="border p-2">Total</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <h2 class="text-xl font-bold mb-2">Current Status</h2>
+                <p>Day: <span id="currentDay">0</span></p>
+                <p>Price: $<span id="currentPrice">0</span></p>
+                <p>Funds: $<span id="currentFunds">0</span></p>
+                <p>Shares: <span id="currentShares">0</span></p>
+                <p>Portfolio Value: $<span id="portfolioValue">0</span></p>
+            </div>
+            <div>
+                <h2 class="text-xl font-bold mb-2">Performance</h2>
+                <p>Profit/Loss: $<span id="profitLoss">0</span></p>
+                <p>Return: <span id="returnPercentage">0</span>%</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let prices = [];
+        let currentDay = 0;
+        let chart;
+        let funds;
+        let shares = 0;
+        let transactions = [];
+
+        function normalRandomWalk(initialPrice, days, volatility) {
+            let prices = [initialPrice];
+            for (let i = 1; i < days; i++) {
+                let change = initialPrice * volatility * (Math.random() - 0.5);
+                prices.push(prices[i - 1] + change);
+            }
+            return prices;
+        }
+
+        function geometricBrownianMotion(initialPrice, days, volatility) {
+            let prices = [initialPrice];
+            let mu = 0.1; // drift
+            let dt = 1 / 252; // assuming 252 trading days in a year
+            for (let i = 1; i < days; i++) {
+                let dW = Math.sqrt(dt) * (Math.random() - 0.5) * 2;
+                let change = prices[i - 1] * (mu * dt + volatility * dW);
+                prices.push(prices[i - 1] + change);
+            }
+            return prices;
+        }
+
+        function jumpDiffusion(initialPrice, days, volatility) {
+            let prices = [initialPrice];
+            let lambda = 0.1; // jump intensity
+            let jumpMean = 0; // mean jump size
+            let jumpStd = 0.1; // jump size standard deviation
+            for (let i = 1; i < days; i++) {
+                let change = initialPrice * volatility * (Math.random() - 0.5);
+                if (Math.random() < lambda) {
+                    let jump = Math.exp(jumpMean + jumpStd * (Math.random() - 0.5));
+                    change += prices[i - 1] * (jump - 1);
+                }
+                prices.push(Math.max(0, prices[i - 1] + change));
+            }
+            return prices;
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            const labels = Array.from({length: currentDay + 1}, (_, i) => i);
+            
+            if (chart) {
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = prices.slice(0, currentDay + 1);
+                chart.update();
+            } else {
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Stock Price',
+                            data: prices.slice(0, currentDay + 1),
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            title: {
+                                display: true,
+                                text: 'Stock Price Simulation'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateStatus() {
+            document.getElementById('currentDay').textContent = currentDay;
+            document.getElementById('currentPrice').textContent = prices[currentDay].toFixed(2);
+            document.getElementById('currentFunds').textContent = funds.toFixed(2);
+            document.getElementById('currentShares').textContent = shares;
+            
+            const portfolioValue = funds + shares * prices[currentDay];
+            document.getElementById('portfolioValue').textContent = portfolioValue.toFixed(2);
+            
+            const initialValue = parseFloat(document.getElementById('initialFunds').value);
+            const profitLoss = portfolioValue - initialValue;
+            document.getElementById('profitLoss').textContent = profitLoss.toFixed(2);
+            
+            const returnPercentage = ((portfolioValue / initialValue - 1) * 100).toFixed(2);
+            document.getElementById('returnPercentage').textContent = returnPercentage;
+        }
+
+        function addTransaction(action, shares, price) {
+            const total = shares * price;
+            transactions.push({day: currentDay, action, shares, price, total});
+            
+            const tableBody = document.getElementById('transactionTable').getElementsByTagName('tbody')[0];
+            const row = tableBody.insertRow();
+            row.innerHTML = `
+                <td class="border p-2">${currentDay}</td>
+                <td class="border p-2">${action}</td>
+                <td class="border p-2">${shares}</td>
+                <td class="border p-2">$${price.toFixed(2)}</td>
+                <td class="border p-2">$${total.toFixed(2)}</td>
+            `;
+        }
+
+        document.getElementById('simulate').addEventListener('click', function() {
+            const initialPrice = parseFloat(document.getElementById('initialPrice').value);
+            const days = parseInt(document.getElementById('days').value);
+            const volatility = parseFloat(document.getElementById('volatility').value);
+            const model = document.getElementById('model').value;
+            
+            funds = parseFloat(document.getElementById('initialFunds').value);
+            shares = 0;
+            currentDay = 0;
+            transactions = [];
+            
+            document.getElementById('transactionTable').getElementsByTagName('tbody')[0].innerHTML = '';
+
+            switch(model) {
+                case 'normal':
+                    prices = normalRandomWalk(initialPrice, days, volatility);
+                    break;
+                case 'brownian':
+                    prices = geometricBrownianMotion(initialPrice, days, volatility);
+                    break;
+                case 'jump':
+                    prices = jumpDiffusion(initialPrice, days, volatility);
+                    break;
+            }
+
+            updateChart();
+            updateStatus();
+            
+            document.getElementById('simulate').style.display = 'none';
+            document.getElementById('nextDay').style.display = 'block';
+        });
+
+        document.getElementById('nextDay').addEventListener('click', function() {
+            if (currentDay < prices.length - 1) {
+                currentDay++;
+                
+                const buyPercentage = parseFloat(document.getElementById('buyPercentage').value);
+                const sellPercentage = parseFloat(document.getElementById('sellPercentage').value);
+                
+                if (buyPercentage > 0) {
+                    const amount = funds * buyPercentage;
+                    const sharesToBuy = Math.floor(amount / prices[currentDay]);
+                    if (sharesToBuy > 0) {
+                        const cost = sharesToBuy * prices[currentDay];
+                        funds -= cost;
+                        shares += sharesToBuy;
+                        addTransaction('Buy', sharesToBuy, prices[currentDay]);
+                    }
+                } else if (sellPercentage > 0) {
+                    const sharesToSell = Math.floor(shares * sellPercentage);
+                    if (sharesToSell > 0) {
+                        const revenue = sharesToSell * prices[currentDay];
+                        funds += revenue;
+                        shares -= sharesToSell;
+                        addTransaction('Sell', sharesToSell, prices[currentDay]);
+                    }
+                }
+                
+                updateChart();
+                updateStatus();
+                
+                document.getElementById('buyPercentage').value = '0';
+                document.getElementById('sellPercentage').value = '0';
+            }
+            
+            if (currentDay === prices.length - 1) {
+                document.getElementById('nextDay').style.display = 'none';
+                document.getElementById('simulate').style.display = 'block';
+            }
+        });
+    </script>
+<script>window.parent.postMessage({ action: "ready" }, "*"); 
+ 
+window.console = new Proxy(console, {
+  get(target, prop) {
+    if (['log', 'warn', 'error'].includes(prop)) {
+      return new Proxy(target[prop], {
+        apply(fn, thisArg, args) {
+          fn.apply(thisArg, args);
+          window.parent.postMessage({ action: 'console', 
+            type: prop, 
+            args: args.map((arg) => {
+              try {
+                return JSON.stringify(arg).replace(/^["']|["']$/g, '');
+              } catch (e) {
+                return arg;
+              }
+            }) 
+          }, '*');
+        }
+      });
+    }
+    return target[prop];
+  }
+});
+</script></body>
+</html>
